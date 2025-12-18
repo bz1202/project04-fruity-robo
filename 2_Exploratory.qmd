@@ -1,0 +1,316 @@
+---
+title: "Exploratory Analysis"
+author: "Yuxun He"
+format: html
+---
+
+We aim to conduct an exploratory analysis of key characteristics of games in the dataset, including playtime, pricing, user reviews, ownership scale, release patterns over time, and game tags. 
+Through a series of descriptive visualizations, this analysis provides an overview of the distributions, tail behaviors, and temporal trends of these variables, helping to reveal general patterns and potential sources of heterogeneity in the game market.
+
+## Basic Analysis and Visualization of some key variables
+
+First we load necessary libraries, load the merged dataset and take a glimpse and set theme for our plots.
+
+```{r}
+#| message = FALSE
+library(dplyr)
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+```
+
+```{r}
+theme_myplot <- theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 18, hjust = 0.5),
+    plot.subtitle = element_text(size = 13, hjust = 0.5, color = "gray30"),
+    axis.title = element_text(size = 13),
+    axis.text = element_text(size = 11)
+  )
+```
+
+```{r}
+data <- readRDS("data/merged_data.rds")
+dim(data)
+colnames(data)
+head(data)
+```
+
+### Distrtibution of Game Playtime per user
+```{r}
+# Prepare playtime variable
+af <- data %>%
+  mutate(average_forever = as.numeric(average_forever)) %>%
+  filter(!is.na(average_forever))
+
+# Compute tail statistics for subtitle
+tail_info <- af %>%
+  summarise(
+    n_total = n(),
+    n_tail = sum(average_forever > 1500),
+    max_val = max(average_forever)
+  )
+
+# Histogram focusing on the main body of the distribution
+p <- ggplot(
+  af %>% filter(average_forever <= 1500),
+  aes(x = average_forever)
+) +
+  geom_histogram(
+    bins = 30,
+    fill = "#4C72B0",
+    alpha = 0.8,
+    color = "white"
+  ) +
+  coord_flip() +
+  scale_x_reverse() +
+  labs(
+    title = "Distribution of Average Playtime per Game",
+    subtitle = paste0(
+      tail_info$n_tail,
+      " games exceed 1,500 minutes; maximum observed value is ",
+      format(round(tail_info$max_val), big.mark = ","),
+      " minutes"
+    ),
+    x = "Average Playtime (minutes)",
+    y = "Number of Games"
+  ) +
+  theme_myplot
+p
+
+ggsave(
+  filename = "fig/playtime_distribution.jpg",
+  plot = p,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+```
+
+### Distribution of Game Prices
+```{r}
+pr <- data %>%
+  mutate(price = as.numeric(price)/100) %>%
+  filter(!is.na(price))
+
+pr_tail <- pr %>%
+  summarise(
+    n_tail = sum(price > 80),
+    max_val = max(price)
+  )
+
+p <- ggplot(
+  pr %>% filter(price <= 80),
+  aes(x = price)
+) +
+  geom_histogram(
+    bins = 20,
+    fill = "#4C72B0",
+    alpha = 0.8,
+    color = "white"
+  ) +
+  coord_flip() +
+  scale_x_reverse() +
+  labs(
+    title = "Distribution of Game Prices",
+    subtitle = paste0(
+      pr_tail$n_tail,
+      " games are priced above $80; maximum price = $",
+      format(round(pr_tail$max_val), big.mark = ",")
+    ),
+    x = "Price (USD)",
+    y = "Number of Games"
+  ) +
+  theme_myplot
+p
+
+ggsave(
+  filename = "fig/price_distribution.jpg",
+  plot = p,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+```
+
+### Distribution of Overall Review Ratings
+```{r}
+library(dplyr)
+library(stringr)
+library(ggplot2)
+
+review_levels <- c(
+  "Overwhelmingly Negative",
+  "Very Negative",
+  "Negative",
+  "Mostly Negative",
+  "Mixed",
+  "Mostly Positive",
+  "Positive",
+  "Very Positive",
+  "Overwhelmingly Positive"
+)
+
+# Separate numeric-only review categories
+review_df <- data %>%
+  filter(!is.na(overall_review)) %>%
+  mutate(
+    is_numeric_review = str_detect(overall_review, "^\\d"),
+    overall_review = factor(
+      overall_review,
+      levels = review_levels,
+      ordered = TRUE
+    )
+  )
+
+# Count excluded observations
+excluded_info <- review_df %>%
+  summarise(
+    n_excluded = sum(is_numeric_review),
+    n_total = n()
+  )
+
+# Plot distribution after excluding numeric-only reviews
+p <- ggplot(
+  review_df %>% filter(!is_numeric_review),
+  aes(x = overall_review)
+) +
+  geom_bar(fill = "#4C72B0", color = "white") +
+  coord_flip() +
+  labs(
+    title = "Distribution of Overall Review Ratings",
+    subtitle = paste0(
+      excluded_info$n_excluded,
+      " games are excluded due to insufficient reviews"
+    ),
+    x = "Overall Review",
+    y = "Number of Games"
+  ) +
+  theme_myplot +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+p
+
+ggsave(
+  filename = "fig/review_distribution.jpg",
+  plot = p,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+```
+
+### Distribution
+```{r}
+# ----- EXPLICIT owners level order (small -> large), WRITTEN OUT -----
+owners_levels <- c(
+  "0 ~ 20,000",
+  "20,000 ~ 50,000",
+  "50,000 ~ 100,000",
+  "100,000 ~ 200,000",
+  "200,000 ~ 500,000",
+  "500,000 ~ 1,000,000",
+  "1,000,000 ~ 2,000,000"
+)
+
+# ----- apply ordered factor -----
+owner_df <- data %>%
+  filter(!is.na(owners)) %>%
+  mutate(
+    owners = str_replace_all(owners, "\\s*\\.\\.\\s*", " ~ "),
+    owners = factor(
+      owners,
+      levels = owners_levels,
+      ordered = TRUE
+    )
+  )
+
+# ----- plot (y-axis owners: small -> large) -----
+p <- ggplot(owner_df, aes(x = owners)) +
+  geom_bar(fill = "#4C72B0", color = "white") +
+  coord_flip() +
+  labs(
+    title = "Distribution of Game Ownership",
+    subtitle = "All ownership ranges are retained in the analysis",
+    x = "Estimated Number of Owners",
+    y = "Number of Games"
+  ) +
+  theme_myplot
+p
+
+ggsave(
+  filename = "fig/ownership_distribution.jpg",
+  plot = p,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+```
+
+### Game Releases Over Time
+```{r}
+d <- data %>%
+  mutate(
+    release_date = lubridate::mdy(release_date)
+  ) %>%
+  filter(!is.na(release_date)) %>%
+  group_by(release_date) %>%
+  mutate(
+    y_pos = row_number()
+  ) %>%
+  ungroup()
+p <- ggplot(d, aes(x = release_date, y = y_pos)) +
+  geom_point(
+    alpha = 0.25,
+    size = 1.2,
+    color = "#4C72B0"
+  ) +
+  labs(
+    title = "Game Releases Over Time",
+    subtitle = "Each point represents one game; stacked vertically by release date",
+    x = "Release Date",
+    y = "Number of Games Released on the Same Date"
+  ) +
+  theme_myplot
+p
+  
+ggsave(
+  filename = "fig/release_over_time.jpg",
+  plot = p,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+```
+
+```{r}
+tag_counts <- data %>%
+  filter(!is.na(tags)) %>%
+  separate_rows(tags, sep = ",") %>%
+  mutate(tags = str_trim(tags)) %>%
+  filter(tags != "+") %>%     
+  count(tags, sort = TRUE)
+
+top_tags <- tag_counts %>% slice_max(n, n = 20)
+
+p <- top_tags %>%
+  ggplot(aes(x = reorder(tags, n), y = n)) +
+  geom_col(fill = "#4C72B0") +
+  coord_flip() +
+  labs(
+    title = "Top 20 Most Common Game Tags",
+    subtitle = "Tag frequency across all games in the dataset",
+    x = "Tag",
+    y = "Number of Games"
+  ) +
+  theme_myplot
+p
+
+ggsave(
+  filename = "fig/top_tags.jpg",
+  plot = p,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+```
+

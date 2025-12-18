@@ -1,0 +1,254 @@
+---
+title: "Steam Dataset"
+author: "Yuxun He"
+---
+
+As described in the proposal, we have two main datasets, one from SteamSpy API and another from web scraping the Steam Store.
+
+## 1. SteamSpy API
+This is our main data source, which contains 30000 steam games with 15 variables that describe various aspects.
+1. appid: the unique numeric identifier assigned to each game on Steam;
+2. name: the official title of the game; 
+3. developer: the studio or individual responsible for creating the game; 
+4. publisher: the company that distributes or markets the game; 
+5. positive: the total number of positive user reviews; 
+6. negative: the total number of negative user reviews; 
+7. owners: an estimated range representing how many Steam accounts own the game; 
+8. average_forever: the average lifetime playtime per user, measured in minutes; 
+9. average_2weeks: the average playtime per user within the past two weeks, also in minutes; 
+10. median_forever: the median lifetime playtime across all users, providing a robust indicator of long-term engagement; 
+11. median_2weeks: the median playtime during the past two weeks; 
+12. price: the current price of the game in cents, where 0 indicates free-to-play; 
+13. initialprice: the original, non-discounted price in cents; 
+14. discount: the current discount percentage relative to the original price; 
+15. ccu: the current number of concurrent users actively playing the game at the time of data retrieval.
+
+```{r}
+#| message = FALSE
+library(httr2)
+library(jsonlite)
+library(dplyr)
+library(purrr)
+
+# 1. Download a single page and convert all fields to character
+get_page <- function(page_num) {
+  url <- paste0("https://steamspy.com/api.php?request=all&page=", page_num)
+
+  resp <- request(url) |> req_perform()
+  raw  <- resp |> resp_body_json()
+
+  # Stop if the page is empty (end of dataset)
+  if (length(raw) == 0) return(NULL)
+
+  # Convert each game entry to tibble and all columns to character
+  page_tbl <- bind_rows(lapply(raw, function(x) {
+    as_tibble(x) |> mutate(across(everything(), as.character))
+  }))
+
+  return(page_tbl)
+}
+
+# 2. Main function: Automatically fetch pages until empty
+get_steamspy_all <- function(max_pages = 50) {
+
+  all_pages <- list()
+
+  for (p in 1:max_pages) {
+    message("Downloading page ", p, " ...")
+
+    page_data <- get_page(p)
+
+    # Stop if no more data
+    if (is.null(page_data)) {
+      message("Page ", p, " is empty. Stopping.")
+      break
+    }
+
+    all_pages[[p]] <- page_data
+  }
+
+  # Combine all pages
+  steam_raw <- bind_rows(all_pages)
+  message("Total records downloaded: ", nrow(steam_raw))
+
+  # 3. Convert selected numeric columns
+  numeric_cols <- c(
+    "appid", "positive", "negative", "average_2weeks", 
+    "median_2weeks", "price", "initialprice", "discount",
+    "ccu", "userscore"
+    # score_rank removed because user does not want it
+  )
+
+  steam_clean <- steam_raw %>%
+    mutate(across(all_of(numeric_cols), ~ suppressWarnings(as.numeric(.x)))) %>%
+    select(-score_rank, -userscore)
+
+  message("Cleaning complete. Returning dataset.")
+  return(steam_clean)
+}
+
+# 3. Download ~30 pages (≈ 30,000 games)
+steam_data <- get_steamspy_all(max_pages = 30)
+
+# 4. Remove those repeated and 28628 games left
+steam_data <- steam_data %>%
+  distinct(appid, .keep_all = TRUE)
+
+# Inspect structure
+glimpse(steam_data)
+saveRDS(steam_data, "api_data.rds")
+```
+
+## 2. Scraping from Steam Store
+We further supplement the data by scraping additional information from the Steam Store front-end through the `scrape_steam_game` function, which returns a tibble with the following fields:
+1.	appid: the unique numeric identifier assigned to each game on Steam.
+2.	game_name: the official name of the game as displayed on the Steam Store page.
+3.	overall_review: the qualitative all-time user review summary for the game.
+4.	release_date: the official release date of the game as listed on the Steam Store page.
+5.	tags: a set of descriptive keywords (user-assigned tags) that characterize the game’s content or genre.
+	
+```{r}
+library(rvest)
+library(stringr)
+library(dplyr)
+
+`%||%` <- function(x, y) if (!is.null(x) && length(x) > 0) x else y
+
+scrape_steam_game <- function(appid) {
+  url <- paste0("https://store.steampowered.com/app/", appid)
+
+page <- tryCatch({
+    resp <- httr::GET(
+      url,
+      httr::add_headers(
+        "User-Agent" = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+        "Accept-Language" = "en-US,en;q=0.9"
+      )
+    )
+    raw <- httr::content(resp, "raw")
+    rm(resp)
+    gc()
+    read_html(raw)
+
+}, error = function(e) NULL)
+  if (is.null(page)) return(NULL)
+
+  # Game name
+  game_name <- page %>%
+    html_node(".apphub_AppName") %>%
+    html_text(trim = TRUE)
+
+  # Review summaries
+  overall_review <- page %>%
+    html_node(".user_reviews_summary_row:nth-child(1) .game_review_summary") %>%
+    html_text(trim = TRUE)
+
+  # Release date
+  release_date <- page %>%
+    html_node(".release_date .date") %>%
+    html_text(trim = TRUE)
+
+  # Tags
+  tags <- page %>%
+    html_nodes(".app_tag") %>%
+    html_text(trim = TRUE) %>%
+    str_squish() %>%
+    paste(collapse = ", ")
+
+  df <- tibble(
+    appid = appid,
+    game_name = game_name,
+    overall_review = overall_review,
+    release_date = release_date,
+    tags = tags
+  )
+  
+  # Remove if all fields (except appid) are empty or NA
+  if (all(is.na(df[ , -1]) | df[ , -1] == "")) {
+    return(NULL)
+  }
+
+  return(df)
+}
+
+# example usage
+scrape_steam_game(570)
+```
+
+We scrape the Steam Store for all games in our SteamSpy dataset.
+But not all can be scraped. For those with access restriction, we directly filter them and get 28017 games at last.
+```{r, eval = FALSE}
+library(furrr)
+library(purrr)
+library(dplyr)
+library(parallel)
+library(progress)
+
+appids <- steam_data$appid
+# Progress bar
+pb <- progress_bar$new(
+  total = length(appids),
+  format = "Scraping [:bar] :percent :current/:total eta: :eta"
+)
+scraped_list <- vector("list", length(appids))
+
+for (i in seq_along(appids)) {
+  id <- appids[i]
+  # Retry logic
+  res <- NULL
+  for (attempt in 1:3) {
+    res <- try(scrape_steam_game(id), silent = TRUE)
+    if (!inherits(res, "try-error") && !is.null(res)) break
+  }
+  if (inherits(res, "try-error") || is.null(res)) {
+    scraped_list[[i]] <- NULL
+  } else {
+    scraped_list[[i]] <- res
+  }
+  pb$tick()
+  Sys.sleep(runif(1, 0.1, 0.3))
+  if (i %% 100 == 0) {
+    non_null <- sum(!sapply(scraped_list[1:i], is.null))
+    message("i = ", i, " | non-null = ", non_null)
+    closeAllConnections()
+    Sys.sleep(runif(1, 5, 8))
+  }
+}
+
+scraped_data <- scraped_list %>% compact() %>% bind_rows()
+scraped_data <- scraped_data %>%
+  group_by(appid) %>%
+  summarise(
+    game_name = first(game_name),
+    overall_review = first(overall_review),
+    release_date = first(release_date),
+    tags = first(tags),
+    .groups = "drop"
+  )
+
+cat("Scraping complete. Final rows:", nrow(scraped_data), "\n")
+saveRDS(scraped_data, "data/scraped_data.rds")
+```
+
+```{r}
+#| label: load-scraped-data
+# Load pre-scraped data when skipping the scraping chunk
+if (!exists("scraped_data")) {
+  if (file.exists("data/scraped_data.rds")) {
+    scraped_data <- readRDS("data/scraped_data.rds")
+  } else if (file.exists("scraped_data.rds")) {
+    scraped_data <- readRDS("scraped_data.rds")
+  } else {
+    stop("scraped_data object not found. Run the scraping chunk or provide data/scraped_data.rds.")
+  }
+}
+```
+
+## Join the data
+Finally, we join the two datasets using the `appid` as the key, 28017 games are successfully merged.
+```{r}
+merged_data <- steam_data %>%
+  inner_join(scraped_data, by = "appid")
+glimpse(merged_data)
+saveRDS(merged_data, "merged_data.rds")
+```

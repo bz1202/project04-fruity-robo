@@ -1,0 +1,41 @@
+---
+title: "Understanding the commercial success of Steam games"
+subtitle: "Data Analysis of 28,000+ Games"
+author: "Fruity Robo Team"
+---
+
+## Project Overview
+
+This project analyzes the **commercial success factors** of video games on Steam, the world's largest digital PC gaming marketplace.  Using data from 28,017 games, we explore: 
+
+- **Pricing & Discount Strategies** - How do pricing decisions impact success?
+- **Genre & Tag Clustering** - Which game types share similar outcomes?
+- **Temporal Patterns** - Are there seasonal release patterns?
+- **Publisher Effects** - Do large publishers systematically outperform indies?
+
+## Key Findings
+
+### The "Success Formula" Decoded
+
+| Cluster | Profile | Key Insight |
+|---------|---------|-------------|
+| **Cluster 3** | Evergreen Hits | Action-focused, multiplayer games dominate long-term popularity |
+| **Cluster 5** | Premium Titles | Narrative-rich experiences justify higher price points ($20+) |
+| **Cluster 2** | Indie Gems | High ratings through unique mechanics, avoiding action tropes |
+| **Cluster 1** | Shovelware | High action but low narrative = poor reception |
+
+### Market Insights
+
+- **Premium games** show higher median CCU, contradicting the assumption that cheaper = more popular
+- **Deep discounts (>75%)** are used by already successful titles, not as a growth strategy
+- **Positive review share peaks** at moderate playtime levels (satisfaction "sweet spot")
+
+## Navigation
+
+Explore the full analysis: 
+
+1. [**Dataset**](1_dataset.qmd) - Data collection methodology
+2. [**Exploratory Analysis**](2_Exploratory.qmd) - Distribution visualizations
+3. [**Relationship Analysis**](3_Relationship.qmd) - Cross-variable correlations
+4. [**Clustering Analysis**](4_Cluster.qmd) - Market segmentation
+5. [**Interactive Dashboard**](5_Product.qmd) - Explore the data yourself

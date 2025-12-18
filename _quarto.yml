@@ -1,0 +1,25 @@
+project:
+  type: website
+  output-dir: _site
+
+website:
+  title: "Steam Games Commercial Success"
+  navbar:
+    left:
+      - text: "Overview"
+        href: index.qmd
+      - text: "Dataset"
+        href: 1_dataset.qmd
+      - text: "Exploratory"
+        href: 2_Exploratory.qmd
+      - text: "Relationships"
+        href: 3_Relationship.qmd
+      - text: "Clustering"
+        href: 4_Cluster.qmd
+      - text: "Product"
+        href: 5_Product.qmd
+
+format:
+  html:
+    css: style.css
+    toc: true

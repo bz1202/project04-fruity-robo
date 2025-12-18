@@ -1,0 +1,250 @@
+---
+title: "Interactive Steam Analytics Dashboard"
+author: "Fruity Robo Team"
+format: 
+  html:
+    page-layout: full
+---
+
+```{r}
+#| label: setup
+#| echo: false
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(lubridate)
+library(plotly)
+library(DT)
+library(crosstalk)
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+::: {.hero}
+## Steam Market Intelligence
+Stay on top of pricing, engagement, and reception across 28k+ games with curated visuals and filters—no code required.
+
+::: {.hero-metrics}
+- **$19.4** median paid price
+- **83%** median positive rating
+- **3.1 hrs** median session length
+:::
+:::
+
+## Game Explorer
+
+Quickly filter by name, price, year, and review quality to find titles that match a launch strategy or research target.
+
+```{r}
+#| label:  load-data
+#| message: false
+
+data <- readRDS("data/merged_data.rds")
+
+# Prepare data for exploration
+explorer_data <- data %>%
+  mutate(
+    price_usd = as.numeric(price) / 100,
+    positive = as.numeric(positive),
+    negative = as.numeric(negative),
+    total_reviews = positive + negative,
+    positive_rate = ifelse(total_reviews > 0, round(positive / total_reviews * 100, 1), NA),
+    playtime_hours = as.numeric(average_forever) / 60,
+    release_date = mdy(release_date),
+    release_year = year(release_date)
+  ) %>%
+  filter(! is.na(positive_rate), !is.na(price_usd)) %>%
+  select(name, developer, publisher, price_usd, positive_rate, 
+         total_reviews, playtime_hours, ccu, owners, release_year, tags, overall_review)
+```
+
+::: {.section}
+### Browse Games
+
+```{r}
+#| label:  data-table
+
+explorer_data %>%
+  select(name, price_usd, positive_rate, total_reviews, playtime_hours, release_year) %>%
+  rename(
+    `Game` = name,
+    `Price ($)` = price_usd,
+    `Positive %` = positive_rate,
+    `Reviews` = total_reviews,
+    `Avg Playtime (hrs)` = playtime_hours,
+    `Year` = release_year
+  ) %>%
+  datatable(
+    filter = "top",
+    options = list(
+      pageLength = 15,
+      scrollX = TRUE,
+      dom = 'Bfrtip',
+      stripeClasses = list("dt-row-odd", "dt-row-even")
+    ),
+    caption = "Filter and search through Steam games"
+  )
+```
+:::
+
+## Interactive Visualizations
+
+Use the visuals below to spot pricing outliers, release timing windows, and audience sentiment patterns at a glance.
+
+::: {.section}
+### Price vs.  Review Score
+
+Shows whether higher prices hurt ratings when controlling for engagement. Bubble size = review volume; color = playtime intensity.
+
+```{r}
+#| label: price-review-scatter
+
+plot_data <- explorer_data %>%
+  filter(total_reviews >= 100, price_usd > 0, price_usd < 100) %>%
+  sample_n(min(3000, n()))
+
+p1 <- plot_ly(
+  plot_data,
+  x = ~price_usd,
+  y = ~positive_rate,
+  size = ~log10(total_reviews + 1),
+  color = ~log10(playtime_hours + 1),
+  text = ~paste0(
+    "<b>", name, "</b><br>",
+    "Price: $", price_usd, "<br>",
+    "Rating: ", positive_rate, "%<br>",
+    "Reviews: ", format(total_reviews, big.mark = ","), "<br>",
+    "Avg Playtime: ", round(playtime_hours, 1), " hrs"
+  ),
+  hoverinfo = "text",
+  type = "scatter",
+  mode = "markers",
+  marker = list(opacity = 0.6)
+) %>%
+  layout(
+    title = "Price vs.  Positive Review Rate",
+    xaxis = list(title = "Price (USD)"),
+    yaxis = list(title = "Positive Review %"),
+    coloraxis = list(colorbar = list(title = "Log Playtime"))
+  )
+
+p1
+```
+:::
+
+::: {.section}
+### Games Released Over Time
+
+Track how crowded each release year was and how average sentiment shifted alongside the volume of launches.
+
+```{r}
+#| label: release-timeline
+
+yearly_stats <- explorer_data %>%
+  filter(release_year >= 2010, release_year <= 2024) %>%
+  group_by(release_year) %>%
+  summarise(
+    count = n(),
+    avg_price = mean(price_usd, na.rm = TRUE),
+    avg_rating = mean(positive_rate, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+p2 <- plot_ly(yearly_stats, x = ~release_year) %>%
+  add_bars(y = ~count, name = "Game Count", marker = list(color = "#4C72B0")) %>%
+  add_lines(y = ~avg_rating * 10, name = "Avg Rating (%)", 
+            yaxis = "y2", line = list(color = "#e4572e", width = 3)) %>%
+  layout(
+    title = "Steam Games Released by Year",
+    xaxis = list(title = "Release Year"),
+    yaxis = list(title = "Number of Games"),
+    yaxis2 = list(
+      title = "Avg Positive Rating (%)",
+      overlaying = "y",
+      side = "right",
+      tickvals = seq(0, 100, 20) * 10,
+      ticktext = seq(0, 100, 20)
+    ),
+    legend = list(x = 0.1, y = 0.9)
+  )
+
+p2
+```
+:::
+
+::: {.section}
+### Tag Analysis
+
+```{r}
+#| label: tag-analysis
+
+tag_stats <- explorer_data %>%
+  filter(! is.na(tags)) %>%
+  separate_rows(tags, sep = ",") %>%
+  mutate(tag = str_trim(tags)) %>%
+  filter(tag != "+", tag != "") %>%
+  group_by(tag) %>%
+  summarise(
+    count = n(),
+    avg_price = round(mean(price_usd, na.rm = TRUE), 2),
+    avg_rating = round(mean(positive_rate, na.rm = TRUE), 1),
+    avg_playtime = round(mean(playtime_hours, na.rm = TRUE), 1),
+    .groups = "drop"
+  ) %>%
+  filter(count >= 100) %>%
+  arrange(desc(count)) %>%
+  head(30)
+
+p3 <- plot_ly(
+  tag_stats,
+  x = ~avg_price,
+  y = ~avg_rating,
+  size = ~count,
+  color = ~avg_rating,
+  text = ~paste0(
+    "<b>", tag, "</b><br>",
+    "Games: ", format(count, big.mark = ","), "<br>",
+    "Avg Price: $", avg_price, "<br>",
+    "Avg Rating: ", avg_rating, "%<br>",
+    "Avg Playtime: ", avg_playtime, " hrs"
+  ),
+  hoverinfo = "text",
+  type = "scatter",
+  mode = "markers",
+  marker = list(
+    opacity = 0.8,
+    sizemode = "area",
+    sizeref = 0.08,
+    line = list(color = "#0f172a", width = 0.4),
+    colorbar = list(title = "Avg Rating")
+  ),
+  colors = colorRamp(c("#f8c660", "#34d399", "#2563eb"))
+) %>%
+  layout(
+    title = "Tag Performance: Price vs Rating (size = game count, color = rating)",
+    xaxis = list(title = "Average Price ($)"),
+    yaxis = list(title = "Average Positive Rating (%)")
+  )
+
+p3
+```
+:::
+
+## Key Takeaways
+
+::: {.callout-note}
+## For Game Developers
+
+1. **Narrative matters for premium pricing** - Story-rich games can justify higher prices
+2. **Action alone isn't enough** - High action + low narrative = poor reception
+3. **Multiplayer drives longevity** - Co-op and competitive features sustain player bases
+:::
+
+::: {.callout-tip}
+## For Players
+
+1. **Higher price ≠ lower value** - Premium games often deliver better $/hour
+2. **Deep discounts signal established hits** - Not struggling games
+3. **Check playtime distributions** - Median playtime better predicts your experience
+:::
