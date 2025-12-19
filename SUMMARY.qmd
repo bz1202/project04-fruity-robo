@@ -90,6 +90,23 @@ Perhaps the most critical finding from our EDA is that **player satisfaction is 
 ---
 
 ## 3. Clustering Analysis
+This section uses unsupervised methods to move beyond genre labels and segment Steam games by how they behave in the market. We first cluster titles using numeric performance indicators that proxy monetization, engagement, sentiment, and scale. We then translate noisy user tags into a small set of continuous “content scores” via PCA, and finally link the market segments to these content dimensions to surface repeatable success patterns.
+
+In Stage 1, k means clustering on standardized performance features produces five interpretable market segments. The results suggest a strongly stratified ecosystem: a small “hit” segment accounts for extreme engagement and scale, while most titles sit in a crowded core where quality (review sentiment) becomes the main separator between respected indie releases and low performing games. We validate the segmentation by checking whether the segments align with intuitive tag signatures.
+
+In Stage 2, we construct a tag dummy matrix using the most frequent tags and apply PCA to extract thematic axes. The leading components can be interpreted as a “Narrative and Atmosphere” dimension versus an “Action and Mechanics” dimension. In Stage 3, mapping the performance clusters onto this content space yields clear strategic implications: premium success is associated with stronger narrative and immersion, evergreen mass market hits skew toward action driven loops, and highly rated indie games tend to avoid direct competition in saturated action niches. Low quality titles disproportionately resemble “soulless clones” that copy action mechanics without narrative depth or polish.
+
+Key market segments (Stage 1)
+
+- Cluster 1: Shovelware trap — low price paired with very poor ratings and weak traction.
+
+- Cluster 2: Indie gems — relatively low price but the highest satisfaction, indicating value density rather than spend.
+
+- Cluster 3: Evergreen hits — highest long run engagement and scale.
+
+- Cluster 4: Mediocre middle — low price, moderate satisfaction, and limited engagement.
+
+- Cluster 5: Premium titles — highest pricing with strong ratings, consistent with high production value positioning.
 
 
 ---
